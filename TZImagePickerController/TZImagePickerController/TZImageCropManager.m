@@ -16,7 +16,11 @@
 
 /// 裁剪框背景的处理
 + (void)overlayClippingWithView:(UIView *)view cropRect:(CGRect)cropRect containerView:(UIView *)containerView needCircleCrop:(BOOL)needCircleCrop {
-    UIBezierPath *path= [UIBezierPath bezierPathWithRect:[UIScreen mainScreen].bounds];
+    CGRect maskBounds = view.bounds;
+    if (CGRectIsEmpty(maskBounds)) {
+        maskBounds = containerView.bounds;
+    }
+    UIBezierPath *path= [UIBezierPath bezierPathWithRect:maskBounds];
     CAShapeLayer *layer = [CAShapeLayer layer];
     if (needCircleCrop) { // 圆形裁剪框
         [path appendPath:[UIBezierPath bezierPathWithRoundedRect:cropRect cornerRadius:cropRect.size.width / 2]];

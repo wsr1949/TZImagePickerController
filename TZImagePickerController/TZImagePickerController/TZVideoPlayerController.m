@@ -169,7 +169,7 @@
     [super viewDidLayoutSubviews];
     TZImagePickerController *tzImagePickerVc = (TZImagePickerController *)self.navigationController;
     
-    BOOL isFullScreen = self.view.tz_height == [UIScreen mainScreen].bounds.size.height;
+    BOOL isFullScreen = [TZCommonTools tz_isViewUsingFullScreenBounds:self.view];
     BOOL isRTL = [TZCommonTools tz_isRightToLeftLayout];
     
     CGFloat statusBarHeight = isFullScreen ? [TZCommonTools tz_statusBarHeight] : 0;

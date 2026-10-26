@@ -528,7 +528,50 @@
 
 - (void)setCircleCropRadius:(NSInteger)circleCropRadius {
     _circleCropRadius = circleCropRadius;
-    self.cropRect = CGRectMake(self.view.tz_width / 2 - circleCropRadius, self.view.tz_height / 2 - _circleCropRadius, _circleCropRadius * 2, _circleCropRadius * 2);
+}
+
+- (void)tz_refreshCropRectForBounds:(CGRect)bounds landscape:(BOOL)landscape inContainerView:(UIView *)containerView {
+    if (!self.allowCrop) {
+        return;
+    }
+    if (bounds.size.width < 10 || bounds.size.height < 10) {
+        return;
+    }
+    CGFloat margin = 20;
+    if (_cropRectPortrait.size.width > 0 && _cropRectPortrait.origin.x > 0 && _cropRectPortrait.origin.x < bounds.size.width / 2) {
+        margin = _cropRectPortrait.origin.x;
+    }
+    CGFloat singlePaneLength = [TZCommonTools tz_singlePaneLengthForBounds:bounds inView:containerView landscape:landscape];
+    CGFloat widthHeight = 0;
+    CGRect rect = CGRectZero;
+    if (landscape) {
+        widthHeight = floor(singlePaneLength - margin * 2);
+        widthHeight = MAX(widthHeight, 0);
+        rect = CGRectMake((bounds.size.width - widthHeight) / 2.0, margin, widthHeight, widthHeight);
+        _cropRectLandscape = rect;
+    } else {
+        widthHeight = floor(singlePaneLength - margin * 2);
+        widthHeight = MAX(widthHeight, 0);
+        rect = CGRectMake((bounds.size.width - widthHeight) / 2.0, (bounds.size.height - widthHeight) / 2.0, widthHeight, widthHeight);
+        _cropRectPortrait = rect;
+    }
+    _cropRect = rect;
+    if (_needCircleCrop && widthHeight > 0) {
+        _circleCropRadius = (NSInteger)round(widthHeight / 2.0);
+    }
+}
+
+- (CGRect)tz_cropRectForContainerView:(UIView *)containerView {
+    if (!containerView) {
+        return _cropRect;
+    }
+    if ([TZCommonTools tz_isViewUsingFullScreenBounds:containerView]) {
+        return _cropRect;
+    }
+    CGRect referenceBounds = [TZCommonTools tz_referenceBoundsForView:containerView];
+    CGRect cropRect = _cropRect;
+    cropRect.origin.y -= ((referenceBounds.size.height - containerView.bounds.size.height) / 2.0);
+    return cropRect;
 }
 
 - (void)setCropRect:(CGRect)cropRect {
@@ -545,15 +588,7 @@
 }
 
 - (CGRect)cropRect {
-    CGFloat screenHeight = [UIScreen mainScreen].bounds.size.height;
-    BOOL isFullScreen = self.view.tz_height == screenHeight;
-    if (isFullScreen) {
-        return _cropRect;
-    } else {
-        CGRect newCropRect = _cropRect;
-        newCropRect.origin.y -= ((screenHeight - self.view.tz_height) / 2);
-        return newCropRect;
-    }
+    return _cropRect;
 }
 
 - (void)setTimeout:(NSInteger)timeout {
@@ -704,11 +739,8 @@
             if (self.needShowStatusBar) [UIApplication sharedApplication].statusBarHidden = NO;
         }
     });
-    if (size.width > size.height) {
-        _cropRect = _cropRectLandscape;
-    } else {
-        _cropRect = _cropRectPortrait;
-    }
+    BOOL landscape = size.width > size.height;
+    [self tz_refreshCropRectForBounds:CGRectMake(0, 0, size.width, size.height) landscape:landscape inContainerView:self.view];
 }
 
 #pragma mark - Layout
@@ -875,7 +907,7 @@
     CGFloat tableViewHeight = 0;
     CGFloat naviBarHeight = self.navigationController.navigationBar.tz_height;
     BOOL isStatusBarHidden = [UIApplication sharedApplication].isStatusBarHidden;
-    BOOL isFullScreen = self.view.tz_height == [UIScreen mainScreen].bounds.size.height;
+    BOOL isFullScreen = [TZCommonTools tz_isViewUsingFullScreenBounds:self.view];
     if (self.navigationController.navigationBar.isTranslucent) {
         top = naviBarHeight;
         if (!isStatusBarHidden && isFullScreen) top += [TZCommonTools tz_statusBarHeight];
@@ -954,17 +986,57 @@
 
 @implementation TZCommonTools
 
-+ (UIEdgeInsets)tz_safeAreaInsets {
-    UIWindow *window = [UIApplication sharedApplication].windows.firstObject;
-    if (![window isKeyWindow]) {
-        UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
-        if (CGRectEqualToRect(keyWindow.bounds, [UIScreen mainScreen].bounds)) {
-            window = keyWindow;
++ (UIWindow *)tz_keyWindow {
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if (scene.activationState != UISceneActivationStateForegroundActive &&
+            scene.activationState != UISceneActivationStateForegroundInactive) {
+            continue;
+        }
+        if (![scene isKindOfClass:[UIWindowScene class]]) {
+            continue;
+        }
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (window.isKeyWindow) {
+                return window;
+            }
         }
     }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    for (UIWindow *window in [UIApplication sharedApplication].windows) {
+        if (window.isKeyWindow) {
+            return window;
+        }
+    }
+#pragma clang diagnostic pop
+    return [UIApplication sharedApplication].windows.firstObject;
+}
+
++ (CGRect)tz_referenceBoundsForView:(UIView *)view {
+    if (view.window) {
+        return view.window.bounds;
+    }
+    UIWindow *window = [self tz_keyWindow];
+    if (window) {
+        return window.bounds;
+    }
+    return [UIScreen mainScreen].bounds;
+}
+
++ (BOOL)tz_isViewUsingFullScreenBounds:(UIView *)view {
+    if (!view) {
+        return YES;
+    }
+    CGRect referenceBounds = [self tz_referenceBoundsForView:view];
+    const CGFloat tolerance = 1.0;
+    return (fabs(view.bounds.size.width - referenceBounds.size.width) <= tolerance &&
+            fabs(view.bounds.size.height - referenceBounds.size.height) <= tolerance);
+}
+
++ (UIEdgeInsets)tz_safeAreaInsets {
+    UIWindow *window = [self tz_keyWindow];
     if (@available(iOS 11.0, *)) {
-        UIEdgeInsets insets = [window safeAreaInsets];
-        return insets;
+        return window ? window.safeAreaInsets : UIEdgeInsetsZero;
     }
     return UIEdgeInsetsZero;
 }
@@ -983,12 +1055,61 @@
             CGSizeEqualToSize([UIScreen mainScreen].bounds.size, CGSizeMake(926, 428)));
 }
 
-+ (BOOL)tz_isLandscape {
-    if ([UIApplication sharedApplication].statusBarOrientation == UIDeviceOrientationLandscapeRight ||
-        [UIApplication sharedApplication].statusBarOrientation == UIDeviceOrientationLandscapeLeft) {
-        return true;
++ (BOOL)tz_isLandscapeForView:(UIView *)view {
+    UIWindow *window = view.window ?: [self tz_keyWindow];
+    if (@available(iOS 13.0, *)) {
+        UIInterfaceOrientation orientation = window.windowScene.interfaceOrientation;
+        if (orientation != UIInterfaceOrientationUnknown) {
+            return UIInterfaceOrientationIsLandscape(orientation);
+        }
     }
-    return false;
+    return [self tz_isLandscape];
+}
+
++ (CGFloat)tz_singlePaneLengthForBounds:(CGRect)bounds inView:(UIView *)view landscape:(BOOL)landscape {
+    CGFloat fallback = landscape ? bounds.size.height : bounds.size.width;
+    if (@available(iOS 27.1, *)) {
+        UIView *queryView = view;
+        if (!queryView) {
+            queryView = [self tz_keyWindow];
+        }
+        if (!queryView) {
+            return fallback;
+        }
+        NSArray<UIViewReservedRegion *> *regions = [queryView reservedRegionsOfKind:[UIViewReservedRegionKind divisionRegionKind]
+                                                                            options:UIViewReservedRegionQueryOptionsIncludeInactive];
+        if (regions.count == 0) {
+            return fallback;
+        }
+        if (landscape) {
+            CGFloat reservedHeight = 0;
+            for (UIViewReservedRegion *region in regions) {
+                reservedHeight += region.frame.size.height;
+            }
+            CGFloat paneHeight = (bounds.size.height - reservedHeight) / 2.0;
+            if (paneHeight > 10) {
+                return paneHeight;
+            }
+        } else {
+            CGFloat reservedWidth = 0;
+            for (UIViewReservedRegion *region in regions) {
+                reservedWidth += region.frame.size.width;
+            }
+            CGFloat paneWidth = (bounds.size.width - reservedWidth) / 2.0;
+            if (paneWidth > 10) {
+                return paneWidth;
+            }
+        }
+    }
+    return fallback;
+}
+
++ (BOOL)tz_isLandscape {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    UIInterfaceOrientation orientation = [UIApplication sharedApplication].statusBarOrientation;
+#pragma clang diagnostic pop
+    return UIInterfaceOrientationIsLandscape(orientation);
 }
 
 + (CGFloat)tz_statusBarHeight {

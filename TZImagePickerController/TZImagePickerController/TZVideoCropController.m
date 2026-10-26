@@ -172,7 +172,7 @@
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
 
-    BOOL isFullScreen = self.view.tz_height == [UIScreen mainScreen].bounds.size.height;
+    BOOL isFullScreen = [TZCommonTools tz_isViewUsingFullScreenBounds:self.view];
     CGFloat statusBarHeight = isFullScreen ? [TZCommonTools tz_statusBarHeight] : 0;
     CGFloat statusBarAndNaviBarHeight = statusBarHeight + self.navigationController.navigationBar.tz_height;
     

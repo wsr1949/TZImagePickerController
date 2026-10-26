@@ -33,6 +33,7 @@
     UILabel *_originalPhotoLabel;
     
     CGFloat _offsetItemCount;
+    CGSize _tz_lastPreviewContainerSize;
     
     BOOL _didSetIsSelectOriginalPhoto;
 }
@@ -63,6 +64,44 @@
     [self configBottomToolBar];
     self.view.clipsToBounds = YES;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didChangeStatusBarOrientationNotification:) name:UIApplicationDidChangeStatusBarOrientationNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(tz_previewContainerGeometryMayChange:) name:UIDeviceOrientationDidChangeNotification object:nil];
+}
+
+- (void)viewSafeAreaInsetsDidChange {
+    [super viewSafeAreaInsetsDidChange];
+    [self.view setNeedsLayout];
+}
+
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    _offsetItemCount = self.currentIndex;
+    __weak typeof(self) weakSelf = self;
+    [coordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext>  _Nonnull context) {
+        [weakSelf.view setNeedsLayout];
+        [weakSelf.view layoutIfNeeded];
+    }];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (self.traitCollection.horizontalSizeClass != previousTraitCollection.horizontalSizeClass ||
+        self.traitCollection.verticalSizeClass != previousTraitCollection.verticalSizeClass) {
+        [self.view setNeedsLayout];
+    }
+}
+
+- (void)tz_previewContainerGeometryMayChange:(NSNotification *)noti {
+    _offsetItemCount = self.currentIndex;
+    [self.view setNeedsLayout];
+}
+
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    if (_tz_lastPreviewContainerSize.width > 0 &&
+        (fabs(self.view.bounds.size.width - _tz_lastPreviewContainerSize.width) > 0.5 ||
+         fabs(self.view.bounds.size.height - _tz_lastPreviewContainerSize.height) > 0.5)) {
+        _offsetItemCount = self.currentIndex;
+    }
 }
 
 - (void)setIsSelectOriginalPhoto:(BOOL)isSelectOriginalPhoto {
@@ -223,6 +262,7 @@
 - (void)configCropView {
     TZImagePickerController *_tzImagePickerVc = (TZImagePickerController *)self.navigationController;
     if (_tzImagePickerVc.maxImagesCount <= 1 && _tzImagePickerVc.allowCrop && _tzImagePickerVc.allowPickingImage) {
+        CGRect cropRect = [_tzImagePickerVc tz_cropRectForContainerView:self.view];
         [_cropView removeFromSuperview];
         [_cropBgView removeFromSuperview];
         
@@ -231,16 +271,16 @@
         _cropBgView.frame = self.view.bounds;
         _cropBgView.backgroundColor = [UIColor clearColor];
         [self.view addSubview:_cropBgView];
-        [TZImageCropManager overlayClippingWithView:_cropBgView cropRect:_tzImagePickerVc.cropRect containerView:self.view needCircleCrop:_tzImagePickerVc.needCircleCrop];
+        [TZImageCropManager overlayClippingWithView:_cropBgView cropRect:cropRect containerView:self.view needCircleCrop:_tzImagePickerVc.needCircleCrop];
         
         _cropView = [UIView new];
         _cropView.userInteractionEnabled = NO;
-        _cropView.frame = _tzImagePickerVc.cropRect;
+        _cropView.frame = cropRect;
         _cropView.backgroundColor = [UIColor clearColor];
         _cropView.layer.borderColor = [UIColor whiteColor].CGColor;
         _cropView.layer.borderWidth = 1.0;
         if (_tzImagePickerVc.needCircleCrop) {
-            _cropView.layer.cornerRadius = _tzImagePickerVc.cropRect.size.width / 2;
+            _cropView.layer.cornerRadius = cropRect.size.width / 2;
             _cropView.clipsToBounds = YES;
         }
         [self.view addSubview:_cropView];
@@ -258,8 +298,12 @@
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     TZImagePickerController *_tzImagePickerVc = (TZImagePickerController *)self.navigationController;
+    if (_tzImagePickerVc.maxImagesCount <= 1 && _tzImagePickerVc.allowCrop && _tzImagePickerVc.allowPickingImage) {
+        BOOL landscape = [TZCommonTools tz_isLandscapeForView:self.view];
+        [_tzImagePickerVc tz_refreshCropRectForBounds:self.view.bounds landscape:landscape inContainerView:self.view];
+    }
     
-    BOOL isFullScreen = self.view.tz_height == [UIScreen mainScreen].bounds.size.height;
+    BOOL isFullScreen = [TZCommonTools tz_isViewUsingFullScreenBounds:self.view];
     BOOL isRTL = [TZCommonTools tz_isRightToLeftLayout];
     
     CGFloat statusBarHeight = isFullScreen ? [TZCommonTools tz_statusBarHeight] : 0;
@@ -278,17 +322,44 @@
     
     _indexLabel.frame = _selectButton.frame;
     
-    _layout.itemSize = CGSizeMake(self.view.tz_width + 20, self.view.tz_height);
+    CGSize containerSize = self.view.bounds.size;
+    BOOL containerSizeChanged = (fabs(containerSize.width - _tz_lastPreviewContainerSize.width) > 0.5 ||
+                                 fabs(containerSize.height - _tz_lastPreviewContainerSize.height) > 0.5);
+    if (containerSizeChanged) {
+        _tz_lastPreviewContainerSize = containerSize;
+    }
+    
+    CGFloat pageWidth = self.view.tz_width + 20;
+    _layout.itemSize = CGSizeMake(pageWidth, self.view.tz_height);
     _layout.minimumInteritemSpacing = 0;
     _layout.minimumLineSpacing = 0;
-    _collectionView.frame = CGRectMake(-10, 0, self.view.tz_width + 20, self.view.tz_height);
-    [_collectionView setCollectionViewLayout:_layout];
+    _collectionView.frame = CGRectMake(-10, 0, pageWidth, self.view.tz_height);
+    [_layout invalidateLayout];
+    
+    NSInteger targetIndex = self.currentIndex;
     if (_offsetItemCount > 0) {
-        CGFloat offsetX = _offsetItemCount * _layout.itemSize.width;
-        [_collectionView setContentOffset:CGPointMake(offsetX, 0)];
+        targetIndex = (NSInteger)round(_offsetItemCount);
+        _offsetItemCount = 0;
     }
-    if (_tzImagePickerVc.allowCrop) {
+    if (targetIndex < 0) {
+        targetIndex = 0;
+    }
+    if (_models.count > 0 && targetIndex >= (NSInteger)_models.count) {
+        targetIndex = (NSInteger)_models.count - 1;
+    }
+    _currentIndex = targetIndex;
+    CGFloat targetOffsetX = targetIndex * pageWidth;
+    if (containerSizeChanged || fabs(_collectionView.contentOffset.x - targetOffsetX) > 0.5) {
+        [_collectionView setContentOffset:CGPointMake(targetOffsetX, 0) animated:NO];
+    }
+    
+    if (containerSizeChanged || _tzImagePickerVc.allowCrop) {
         [_collectionView reloadData];
+    }
+    for (UICollectionViewCell *visibleCell in _collectionView.visibleCells) {
+        if ([visibleCell isKindOfClass:[TZPhotoPreviewCell class]]) {
+            [(TZPhotoPreviewCell *)visibleCell recoverSubviews];
+        }
     }
     
     CGFloat toolBarHeight = 44 + [TZCommonTools tz_safeAreaInsets].bottom;
@@ -325,7 +396,8 @@
 #pragma mark - Notification
 
 - (void)didChangeStatusBarOrientationNotification:(NSNotification *)noti {
-    _offsetItemCount = _collectionView.contentOffset.x / _layout.itemSize.width;
+    _offsetItemCount = self.currentIndex;
+    [self.view setNeedsLayout];
 }
 
 #pragma mark - Click Event
@@ -438,7 +510,8 @@
     if (_tzImagePickerVc.allowCrop && [cell isKindOfClass:[TZPhotoPreviewCell class]]) { // 裁剪状态
         _doneButton.enabled = NO;
         [_tzImagePickerVc showProgressHUD];
-        UIImage *cropedImage = [TZImageCropManager cropImageView:cell.previewView.imageView toRect:_tzImagePickerVc.cropRect zoomScale:cell.previewView.scrollView.zoomScale containerView:self.view];
+        CGRect cropRect = [_tzImagePickerVc tz_cropRectForContainerView:self.view];
+        UIImage *cropedImage = [TZImageCropManager cropImageView:cell.previewView.imageView toRect:cropRect zoomScale:cell.previewView.scrollView.zoomScale containerView:self.view];
         if (_tzImagePickerVc.needCircleCrop) {
             cropedImage = [TZImageCropManager circularClipImage:cropedImage];
         }
@@ -526,7 +599,7 @@
         NSString *reuseId = model.type == TZAssetModelMediaTypePhotoGif ? @"TZPhotoPreviewCellGIF" : @"TZPhotoPreviewCell";
         cell = [collectionView dequeueReusableCellWithReuseIdentifier:reuseId forIndexPath:indexPath];
         TZPhotoPreviewCell *photoPreviewCell = (TZPhotoPreviewCell *)cell;
-        photoPreviewCell.cropRect = _tzImagePickerVc.cropRect;
+        photoPreviewCell.cropRect = [_tzImagePickerVc tz_cropRectForContainerView:self.view];
         photoPreviewCell.allowCrop = _tzImagePickerVc.allowCrop;
         photoPreviewCell.scaleAspectFillCrop = _tzImagePickerVc.scaleAspectFillCrop;
         __weak typeof(_collectionView) weakCollectionView = _collectionView;

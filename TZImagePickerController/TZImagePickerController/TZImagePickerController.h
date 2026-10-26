@@ -199,6 +199,10 @@
 @property (nonatomic, assign) CGRect cropRectLandscape;  ///< 裁剪框的尺寸(横屏)
 @property (nonatomic, assign) BOOL needCircleCrop;       ///< 需要圆形裁剪框
 @property (nonatomic, assign) NSInteger circleCropRadius;  ///< 圆形裁剪框半径大小
+/// 根据预览容器 bounds 重新计算裁剪框（需在 layout 后调用，坐标系与 containerView 一致）
+- (void)tz_refreshCropRectForBounds:(CGRect)bounds landscape:(BOOL)landscape inContainerView:(UIView *)containerView;
+/// 获取相对于 containerView 坐标系的裁剪框
+- (CGRect)tz_cropRectForContainerView:(UIView *)containerView;
 @property (nonatomic, copy) void (^cropViewSettingBlock)(UIView *cropView);     ///< 自定义裁剪框的其他属性
 @property (nonatomic, copy) void (^navLeftBarButtonSettingBlock)(UIButton *leftButton);     ///< 自定义返回按钮样式及其属性
 
@@ -364,6 +368,11 @@
 
 
 @interface TZCommonTools : NSObject
++ (UIWindow *)tz_keyWindow;
++ (CGRect)tz_referenceBoundsForView:(UIView *)view;
++ (BOOL)tz_isViewUsingFullScreenBounds:(UIView *)view;
++ (BOOL)tz_isLandscapeForView:(UIView *)view;
++ (CGFloat)tz_singlePaneLengthForBounds:(CGRect)bounds inView:(UIView *)view landscape:(BOOL)landscape;
 + (UIEdgeInsets)tz_safeAreaInsets;
 + (BOOL)tz_isIPhoneX;
 + (BOOL)tz_isLandscape;

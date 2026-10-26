@@ -371,7 +371,7 @@ static CGFloat itemMargin = 5;
     CGFloat footerTipViewH = _authorizationLimited ? 80 : 0;
     
     BOOL isStatusBarHidden = [UIApplication sharedApplication].isStatusBarHidden;
-    BOOL isFullScreen = self.view.tz_height == [UIScreen mainScreen].bounds.size.height;
+    BOOL isFullScreen = [TZCommonTools tz_isViewUsingFullScreenBounds:self.view];
     BOOL isRTL = [TZCommonTools tz_isRightToLeftLayout];
     
     CGFloat toolBarHeight = 50 + [TZCommonTools tz_safeAreaInsets].bottom;
